@@ -1,13 +1,32 @@
 import logging
 import time
+from datetime import datetime, timedelta
 
 import requests
 import pandas as pd
+from pathlib import Path
 
 from src.utils import get_headers
 
+logging.basicConfig(level=logging.DEBUG,  # Устанавливаем уровень логирования
+                    format='%(asctime)s - %(levelname)s - %(message)s',  # Формат вывода сообщений
+                    handlers=[logging.StreamHandler()])
 logger = logging.getLogger("updater")
-logger.setLevel('INFO')
+
+
+
+def prepare_tour(tour):
+    if 'Statistics' in tour:
+        stat = tour['Statistics']
+        if 'Statistic' in stat:
+            stat = stat['Statistic']
+            if type(stat) == list:
+                for s in stat:
+                    tour[s['@id']] = s['$']
+            else:
+                tour[stat['@id']] = stat['$']
+        tour.pop('Statistics')
+    return tour
 
 
 class Collector:
@@ -30,35 +49,53 @@ class Collector:
             if self.today_searches <= 0:
                 logger.info('Searches is over today')
                 break
+            else:
+                logger.info(f'{self.today_searches} searches remaining')
             self.update_network(room)
 
     def update_network(self, network):
-        last_tour_time = self.get_last_tour_time(f'./{network}.csv')
+        last_tour_time = self.get_last_tour_time(f'/home/dron/poker_data/{network}.csv')
         tour_list = self.get_tournaments(last_tour_time, network)
-        if tour_list:
+        if tour_list and isinstance(tour_list, list):
             logger.info(f'From {network} received {len(tour_list)} tournaments')
-            self.add_tournaments(tour_list)
+            self.add_tournaments(tour_list, network)
+        else:
+            logger.warning(f'Data on new tournaments cannot be retrieved from {network}.')
 
     def get_tournaments(self, begin_time, network):
         try:
+            if not begin_time:
+                begin_time = int((datetime.now() - timedelta(days=32)).timestamp())
             url = f'https://www.sharkscope.com/api/maxev/networks/{network}/tournaments?' \
                   f'Filter=Class:SCHEDULED;StakePlusRake:USD{self.buyin_range[0]}~{self.buyin_range[1]};Type:H,NL;' \
                   f'Type!:SAT,HU;' \
                   f'Date:{begin_time}~{int(time.time())}&Order=Last,{1}~{self.today_searches * 10}'
             resp = requests.get(url, headers=get_headers())
-            # print(resp.text)
-            return resp.json()['Response']['CompletedTournamentsResponse']['CompletedTournaments']['CompletedTournament']
+            res = resp.json()
+            self.today_searches = int(res['Response']['UserInfo']['Subscriptions']['@totalSearchesRemaining'])
+            return res['Response']['CompletedTournamentsResponse']['CompletedTournaments']['CompletedTournament']
         except Exception as e:
             logger.error(e)
 
-    def add_tournaments(self, tour_list):
-        print('huy')
-        pass
+    @staticmethod
+    def add_tournaments(tour_list, network):
+        new_tournaments = pd.DataFrame([prepare_tour(t) for t in tour_list])
+        new_tournaments['timestamp'] = new_tournaments['@date']
+        new_tournaments['@date'] = pd.to_datetime(new_tournaments['@date'], unit='s')
+        new_tournaments['weekDay'] = new_tournaments['@date'].dt.day_name()
+        full_path = Path(f'/home/dron/poker_data/{network}.csv')
+        if full_path.is_file():
+            old_data = pd.read_csv(full_path)
+            updated_data = pd.concat([old_data, new_tournaments], ignore_index=True)
+            updated_data.to_csv(full_path, index=False)
+        else:
+            new_tournaments.to_csv(full_path, index=False)
 
     @staticmethod
     def get_last_tour_time(filename):
         try:
-            df = pd.read_csv(f'./{filename}')
+            df = pd.read_csv(filename)
             return df['timestamp'].max()
         except Exception as e:
+            logger.error(f'Cannot to recieve max time {e}')
             return None

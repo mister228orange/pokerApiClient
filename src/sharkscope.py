@@ -10,6 +10,7 @@ class Sharkscope:
         self._headers = get_headers()
         self._prefix = 'https://www.sharkscope.com/api'
 
+
     def get_tournaments(self, count=1000):
         url = f'{self._prefix}/{cfg.USER}/networks/fulltilt/tournaments?filter=Type:OMAHA&Order=Last,1~{count}'
         print(url, get_headers())
