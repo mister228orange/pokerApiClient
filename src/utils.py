@@ -13,3 +13,17 @@ def get_headers():
         'Password': hash_api,
         'User-Agent': 'Mozzila'
     }
+
+
+def get_statistics_headers():
+
+    return {
+        'Accept': 'application/json',
+        'Username': 'maxevteam@gmail.com',
+        'Login': 'maxevteam@gmail.com~,~a9b7f1ea8c3ce86e709f45719f8eea3f',
+        'Password': 'a9b7f1ea8c3ce86e709f45719f8eea3f',
+        'User-Agent': 'Mozzila'
+    }
+
+
+ABI_by_rank = [5, 8, 10, 12, 16, 20, 23, 26, 30, 34, 38, 43, 48, 53, 60, 75, 90, 120, 140, 10**9]

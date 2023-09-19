@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import requests
 import pandas as pd
 from pathlib import Path
+from prettytable import PrettyTable
 
 from src.utils import get_headers
 
@@ -12,7 +13,6 @@ logging.basicConfig(level=logging.DEBUG,  # Устанавливаем уров�
                     format='%(asctime)s - %(levelname)s - %(message)s',  # Формат вывода сообщений
                     handlers=[logging.StreamHandler()])
 logger = logging.getLogger("updater")
-
 
 
 def prepare_tour(tour):
@@ -30,7 +30,7 @@ def prepare_tour(tour):
 
 
 class Collector:
-    def __init__(self, networks, min_buyin=40, max_buyin=240):
+    def __init__(self, networks, min_buyin=3, max_buyin=1300):
         self.networks = networks
         self.today_searches = self.get_today_searches()
         self.buyin_range = (min_buyin, max_buyin)
@@ -55,20 +55,23 @@ class Collector:
 
     def update_network(self, network):
         last_tour_time = self.get_last_tour_time(f'/home/dron/poker_data/{network}.csv')
-        tour_list = self.get_tournaments(last_tour_time, network)
+        tour_list = self.get_completed_tournaments(last_tour_time, network)
         if tour_list and isinstance(tour_list, list):
             logger.info(f'From {network} received {len(tour_list)} tournaments')
             self.add_tournaments(tour_list, network)
         else:
             logger.warning(f'Data on new tournaments cannot be retrieved from {network}.')
 
-    def get_tournaments(self, begin_time, network):
+    def get_completed_tournaments(self, begin_time, network):
         try:
+            exclude = ['SAT', 'HU']
+            if network == 'Winamax.fr':
+                exclude.pop(0)
             if not begin_time:
                 begin_time = int((datetime.now() - timedelta(days=32)).timestamp())
             url = f'https://www.sharkscope.com/api/maxev/networks/{network}/tournaments?' \
                   f'Filter=Class:SCHEDULED;StakePlusRake:USD{self.buyin_range[0]}~{self.buyin_range[1]};Type:H,NL;' \
-                  f'Type!:SAT,HU;' \
+                  f'Type!:{",".join(exclude)};' \
                   f'Date:{begin_time}~{int(time.time())}&Order=Last,{1}~{self.today_searches * 10}'
             resp = requests.get(url, headers=get_headers())
             res = resp.json()
@@ -99,3 +102,21 @@ class Collector:
         except Exception as e:
             logger.error(f'Cannot to recieve max time {e}')
             return None
+
+    def stat(self):
+        table = PrettyTable()
+        table.field_names = ['from', 'to', 'count', 'network']
+        for network in self.networks:
+            row = self.get_network_stat(f'/home/dron/poker_data/{network}.csv', network)
+            table.add_row(row)
+
+        print(table)
+
+    @staticmethod
+    def get_network_stat(filename, network):
+        try:
+            df = pd.read_csv(filename)
+            return [df["@date"].min(), df["@date"].max(), df.count()[0], network]
+        except Exception as e:
+            logger.error(e)
+            return [f'{network} has no data']
